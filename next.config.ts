@@ -33,12 +33,6 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // Logging experimental (Next.js 15)
-  logging: {
-    fetches: {
-      fullUrl: process.env.NODE_ENV === "development",
-    },
-  },
 };
 
 export default nextConfig;

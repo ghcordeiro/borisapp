@@ -66,7 +66,7 @@ export function WeightChart({ weightLogs }: WeightChartProps) {
               tickFormatter={(v) => `${v}g`}
             />
             <Tooltip
-              formatter={(value: number) => [`${value}g`, "Peso"]}
+              formatter={(value) => [`${Number(value)}g`, "Peso"]}
             />
             <Line
               type="monotone"

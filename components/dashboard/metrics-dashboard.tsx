@@ -46,7 +46,7 @@ export function MetricsDashboard({ metrics }: MetricsDashboardProps) {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}g`} />
-                  <Tooltip formatter={(v: number) => [`${v}g`, "Peso"]} />
+                  <Tooltip formatter={(v) => [`${Number(v)}g`, "Peso"]} />
                   <Line
                     type="monotone"
                     dataKey="peso"
@@ -89,7 +89,7 @@ export function MetricsDashboard({ metrics }: MetricsDashboardProps) {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}ml`} />
-                <Tooltip formatter={(v: number) => [`${v} ml`, "Consumido"]} />
+                <Tooltip formatter={(v) => [`${Number(v)} ml`, "Consumido"]} />
                 <ReferenceLine
                   y={metrics.waterGoalMl}
                   stroke="#f97316"
