@@ -1,0 +1,381 @@
+// boris.app — Prisma Schema
+// Banco: PostgreSQL | ORM: Prisma | Deploy: Vercel + Neon/Supabase
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Para Vercel/Neon com connection pooling:
+  directUrl = env("DIRECT_URL")
+}
+
+// ==============================================================
+// AUTH — NextAuth.js v5 (Auth.js)
+// Tabelas obrigatórias para o adapter Prisma do NextAuth
+// ==============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // Domain relations
+  pets             Pet[]
+  mealLogs         MealLog[]
+  petMemberships   PetMember[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ==============================================================
+// DOMAIN — Gestão de Pets
+// ==============================================================
+
+model Pet {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  breed       String?
+  birthDate   DateTime?
+  gender      Gender?
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weightLogs      WeightLog[]
+  dietPlans       DietPlan[]
+  healthLogs      HealthLog[]
+  vetAppointments VetAppointment[]
+  dewormings      Deworming[]
+  mealLogs        MealLog[]
+  members         PetMember[]
+  invites         PetInvite[]
+  vaccines        Vaccine[]
+  waterLogs       WaterLog[]
+
+  @@index([userId])
+  @@map("pets")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+// ==============================================================
+// DOMAIN — Acompanhamento de Peso (Growth Tracker)
+// ==============================================================
+
+model WeightLog {
+  id        String   @id @default(cuid())
+  petId     String
+  weightKg  Decimal  @db.Decimal(5, 3) // Ex: 0.450 kg = 450g
+  loggedAt  DateTime @default(now())
+  notes     String?  @db.Text
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId, loggedAt])
+  @@map("weight_logs")
+}
+
+// ==============================================================
+// DOMAIN — Motor de Nutrição
+// ==============================================================
+
+/// Plano alimentar diário de um pet, calculado a partir do peso atual.
+/// RER = 70 × (pesoKg ^ 0.75) kcal/dia
+/// NED = RER × fatorEnergetico (ex: 1.6 para filhote em crescimento)
+model DietPlan {
+  id              String   @id @default(cuid())
+  petId           String
+  weightKg        Decimal  @db.Decimal(5, 3) // Peso usado para o cálculo
+  rerKcal         Decimal  @db.Decimal(8, 2) // Resultado do RER
+  nedKcal         Decimal  @db.Decimal(8, 2) // Resultado do NED (meta calórica diária)
+  energyFactor    Decimal  @db.Decimal(4, 2) @default(1.60) // Fator de ajuste (filhote = 1.6, adulto neutro = 1.0)
+  mealsPerDay     Int      @default(4)       // Número de refeições fracionadas
+  isActive        Boolean  @default(true)    // Apenas 1 plano ativo por pet
+  wakeTime        String?                    // Horário que o tutor acorda (HH:MM), ex: "07:00"
+  sleepTime       String?                    // Horário que o tutor dorme (HH:MM), ex: "23:00"
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  pet       Pet        @relation(fields: [petId], references: [id], onDelete: Cascade)
+  dietItems DietItem[]
+  mealLogs  MealLog[]
+
+  @@index([petId])
+  @@map("diet_plans")
+}
+
+/// Alimento individual do plano (ex: Ração Royal Canin Kitten, Sachê Whiskas)
+model DietItem {
+  id           String   @id @default(cuid())
+  dietPlanId   String
+  name         String                     // Ex: "Ração Royal Canin Kitten"
+  type         DietItemType               // KIBBLE, WET_FOOD, SUPPLEMENT, etc.
+  kcalPer100g  Decimal  @db.Decimal(7, 2) // Calorias por 100g do alimento
+  dailyGrams   Decimal  @db.Decimal(7, 2) // Gramas diárias calculadas para atingir NED
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  dietPlan DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+
+  @@index([dietPlanId])
+  @@map("diet_items")
+}
+
+enum DietItemType {
+  KIBBLE       // Ração seca
+  WET_FOOD     // Sachê / patê
+  SUPPLEMENT   // Suplemento
+  TREAT        // Petisco
+  OTHER
+}
+
+// ==============================================================
+// DOMAIN — Logs Clínicos
+// ==============================================================
+
+/// Registro de sintoma ou observação clínica do tutor
+model HealthLog {
+  id          String          @id @default(cuid())
+  petId       String
+  type        HealthLogType
+  description String          @db.Text       // Ex: "Barriga estufada após refeição"
+  severity    Severity        @default(LOW)
+  occurredAt  DateTime        @default(now())
+  resolvedAt  DateTime?
+  notes       String?         @db.Text
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId, occurredAt])
+  @@map("health_logs")
+}
+
+enum HealthLogType {
+  SYMPTOM        // Sintoma observado
+  MEDICATION     // Medicação administrada
+  OBSERVATION    // Observação geral
+  EMERGENCY      // Emergência
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// Controle de vermifugação
+model Deworming {
+  id          String   @id @default(cuid())
+  petId       String
+  product     String   // Ex: "Drontal Gatos"
+  doseMg      Decimal? @db.Decimal(6, 2)
+  appliedAt   DateTime
+  nextDueAt   DateTime?
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
+  @@map("dewormings")
+}
+
+/// Agenda veterinária
+model VetAppointment {
+  id            String              @id @default(cuid())
+  petId         String
+  title         String              // Ex: "Consulta de rotina", "Vacinação"
+  vetName       String?
+  clinicName    String?
+  scheduledAt   DateTime
+  completedAt   DateTime?
+  status        AppointmentStatus   @default(SCHEDULED)
+  notes         String?             @db.Text
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId, scheduledAt])
+  @@map("vet_appointments")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+// ==============================================================
+// DOMAIN — Meal Tracking (Fase 1)
+// ==============================================================
+
+model MealLog {
+  id             String   @id @default(cuid())
+  petId          String
+  dietPlanId     String
+  mealNumber     Int
+  scheduledTime  String
+  servedAt       DateTime @default(now())
+  servedByUserId String
+  plannedGrams   Decimal  @db.Decimal(7, 2)
+  actualGrams    Decimal? @db.Decimal(7, 2)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  pet      Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+  dietPlan DietPlan @relation(fields: [dietPlanId], references: [id])
+  servedBy User     @relation(fields: [servedByUserId], references: [id])
+
+  @@index([petId, servedAt])
+  @@index([petId, dietPlanId, servedAt])
+  @@map("meal_logs")
+}
+
+// ==============================================================
+// DOMAIN — Family Sync (Fase 2)
+// ==============================================================
+
+model PetMember {
+  id        String     @id @default(cuid())
+  petId     String
+  userId    String
+  role      MemberRole @default(VIEWER)
+  invitedAt DateTime   @default(now())
+  joinedAt  DateTime?
+  createdAt DateTime   @default(now())
+
+  pet  Pet  @relation(fields: [petId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([petId, userId])
+  @@map("pet_members")
+}
+
+model PetInvite {
+  id        String     @id @default(cuid())
+  petId     String
+  token     String     @unique @default(cuid())
+  createdBy String
+  role      MemberRole @default(CAREGIVER)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime   @default(now())
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("pet_invites")
+}
+
+enum MemberRole {
+  OWNER
+  CAREGIVER
+  VIEWER
+}
+
+// ==============================================================
+// DOMAIN — Vaccines (Fase 3)
+// ==============================================================
+
+model Vaccine {
+  id        String    @id @default(cuid())
+  petId     String
+  name      String
+  appliedAt DateTime
+  nextDueAt DateTime?
+  lotNumber String?
+  vetName   String?
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
+  @@map("vaccines")
+}
+
+// ==============================================================
+// DOMAIN — Water Tracking (Fase 4)
+// ==============================================================
+
+model WaterLog {
+  id          String   @id @default(cuid())
+  petId       String
+  loggedAt    DateTime @default(now())
+  milliliters Int
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId, loggedAt])
+  @@map("water_logs")
+}
