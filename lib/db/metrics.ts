@@ -3,10 +3,27 @@ import { userHasPetReadAccess } from "@/lib/db/access";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+export interface WeightChartPoint {
+  date: string;
+  peso: number;
+  pesoKg: number;
+  deltaG: number | null;
+  weekGrowthG: number | null;
+}
+
+export interface WeightSummary {
+  avgG: number;
+  minG: number;
+  maxG: number;
+  totalDeltaG: number;
+  weeklyGrowthG: number;
+}
+
 export interface PetMetrics {
   petId: string;
   petName: string;
-  weightChart: Array<{ date: string; peso: number }>;
+  weightChart: WeightChartPoint[];
+  weightSummary: WeightSummary | null;
   mealsChart: Array<{ date: string; refeicoes: number }>;
   waterChart: Array<{ date: string; ml: number; meta: number }>;
   dailyScore: number;
@@ -90,6 +107,85 @@ function labelDay(date: Date): string {
   return format(date, "EEE dd/MM", { locale: ptBR });
 }
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+function findLogAboutDaysAgo(
+  logs: Array<{ loggedAt: Date; peso: number }>,
+  index: number,
+  daysAgo: number
+): { peso: number; daysDiff: number } | null {
+  const current = logs[index];
+  if (!current) return null;
+
+  let best: { peso: number; daysDiff: number } | null = null;
+
+  for (let i = index - 1; i >= 0; i--) {
+    const earlier = logs[i];
+    if (!earlier) continue;
+
+    const daysDiff =
+      (current.loggedAt.getTime() - earlier.loggedAt.getTime()) / MS_PER_DAY;
+    if (daysDiff >= daysAgo * 0.5) {
+      best = { peso: earlier.peso, daysDiff };
+      if (daysDiff >= daysAgo) break;
+    }
+  }
+
+  if (!best || best.daysDiff < 1) return null;
+  return best;
+}
+
+export function buildWeightChartData(
+  logs: Array<{ loggedAt: Date; weightKg: number }>
+): { chart: WeightChartPoint[]; summary: WeightSummary | null } {
+  if (logs.length === 0) {
+    return { chart: [], summary: null };
+  }
+
+  const normalized = logs.map((w) => ({
+    loggedAt: w.loggedAt,
+    peso: Math.round(Number(w.weightKg) * 1000),
+    pesoKg: Number(w.weightKg),
+  }));
+
+  const chart: WeightChartPoint[] = normalized.map((log, index) => {
+    const prev = index > 0 ? normalized[index - 1] : null;
+    const deltaG = prev ? log.peso - prev.peso : null;
+
+    const weekRef = findLogAboutDaysAgo(normalized, index, 7);
+    const weekGrowthG =
+      weekRef !== null
+        ? Math.round(((log.peso - weekRef.peso) / weekRef.daysDiff) * 7)
+        : null;
+
+    return {
+      date: format(log.loggedAt, "dd/MM"),
+      peso: log.peso,
+      pesoKg: log.pesoKg,
+      deltaG,
+      weekGrowthG,
+    };
+  });
+
+  const pesos = normalized.map((l) => l.peso);
+  const first = normalized[0]!;
+  const last = normalized[normalized.length - 1]!;
+  const spanDays = Math.max(
+    (last.loggedAt.getTime() - first.loggedAt.getTime()) / MS_PER_DAY,
+    1
+  );
+
+  const summary: WeightSummary = {
+    avgG: Math.round(pesos.reduce((sum, p) => sum + p, 0) / pesos.length),
+    minG: Math.min(...pesos),
+    maxG: Math.max(...pesos),
+    totalDeltaG: last.peso - first.peso,
+    weeklyGrowthG: Math.round(((last.peso - first.peso) / spanDays) * 7),
+  };
+
+  return { chart, summary };
+}
+
 export async function getMetricsForPet(
   petId: string,
   userId: string
@@ -131,12 +227,13 @@ export async function getMetricsForPet(
   const waterGoalMl = computeWaterGoalMl(lastWeightKg);
   const isKitten = computeIsKitten(lastWeightKg, pet.birthDate);
 
-  const weightChart = pet.weightLogs
-    .filter((w) => w.loggedAt >= fourWeeksAgo)
-    .map((w) => ({
-      date: format(w.loggedAt, "dd/MM"),
-      peso: Math.round(Number(w.weightKg) * 1000),
-    }));
+  const recentWeightLogs = pet.weightLogs.filter((w) => w.loggedAt >= fourWeeksAgo);
+  const { chart: weightChart, summary: weightSummary } = buildWeightChartData(
+    recentWeightLogs.map((w) => ({
+      loggedAt: w.loggedAt,
+      weightKg: Number(w.weightKg),
+    }))
+  );
 
   const mealsByDay = new Map<string, number>();
   const waterByDay = new Map<string, number>();
@@ -193,6 +290,7 @@ export async function getMetricsForPet(
     petId: pet.id,
     petName: pet.name,
     weightChart,
+    weightSummary,
     mealsChart,
     waterChart,
     dailyScore,

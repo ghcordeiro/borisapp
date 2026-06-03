@@ -16,10 +16,138 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CircularProgress } from "@/components/tracker/circular-progress";
 import { WaterProgress } from "@/components/tracker/water-progress";
-import type { PetMetrics } from "@/lib/db/metrics";
+import type { PetMetrics, WeightChartPoint, WeightSummary } from "@/lib/db/metrics";
 
 interface MetricsDashboardProps {
   metrics: PetMetrics;
+}
+
+interface WeightChartTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: WeightChartPoint }>;
+  summary: WeightSummary | null;
+}
+
+function formatDeltaG(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value}g`;
+}
+
+function formatKg(value: number): string {
+  return `${value.toFixed(3)} kg`;
+}
+
+function WeightSummaryPanel({ summary }: { summary: WeightSummary }) {
+  const items = [
+    { label: "Média", value: `${summary.avgG}g` },
+    { label: "Mínimo", value: `${summary.minG}g` },
+    { label: "Máximo", value: `${summary.maxG}g` },
+    {
+      label: "Variação total",
+      value: formatDeltaG(summary.totalDeltaG),
+      highlight: summary.totalDeltaG !== 0,
+      positive: summary.totalDeltaG > 0,
+    },
+    {
+      label: "Cresc. semanal",
+      value: formatDeltaG(summary.weeklyGrowthG),
+      highlight: summary.weeklyGrowthG !== 0,
+      positive: summary.weeklyGrowthG > 0,
+    },
+  ];
+
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="rounded-lg border bg-muted/30 px-3 py-2"
+        >
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {item.label}
+          </p>
+          <p
+            className={`text-sm font-semibold ${
+              item.highlight
+                ? item.positive
+                  ? "text-emerald-500"
+                  : "text-rose-500"
+                : ""
+            }`}
+          >
+            {item.value}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WeightChartTooltip({
+  active,
+  payload,
+  summary,
+}: WeightChartTooltipProps) {
+  if (!active || !payload?.length) return null;
+
+  const point = payload[0]?.payload as WeightChartPoint | undefined;
+  if (!point) return null;
+
+  return (
+    <div className="rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-md backdrop-blur">
+      <p className="mb-2 font-semibold">{point.date}</p>
+      <div className="space-y-1">
+        <p>
+          <span className="text-muted-foreground">Peso: </span>
+          <span className="font-medium">{point.peso}g</span>
+          <span className="text-muted-foreground"> ({formatKg(point.pesoKg)})</span>
+        </p>
+        {point.deltaG !== null ? (
+          <p>
+            <span className="text-muted-foreground">Vs anterior: </span>
+            <span
+              className={
+                point.deltaG > 0
+                  ? "font-medium text-emerald-500"
+                  : point.deltaG < 0
+                    ? "font-medium text-rose-500"
+                    : "font-medium"
+              }
+            >
+              {formatDeltaG(point.deltaG)}
+            </span>
+          </p>
+        ) : (
+          <p className="text-muted-foreground">Primeira medição do período</p>
+        )}
+        {point.weekGrowthG !== null && (
+          <p>
+            <span className="text-muted-foreground">Taxa semanal: </span>
+            <span
+              className={
+                point.weekGrowthG > 0
+                  ? "font-medium text-emerald-500"
+                  : point.weekGrowthG < 0
+                    ? "font-medium text-rose-500"
+                    : "font-medium"
+              }
+            >
+              {formatDeltaG(point.weekGrowthG)}/sem
+            </span>
+          </p>
+        )}
+        {summary && (
+          <>
+            <hr className="my-1 border-border" />
+            <p className="text-muted-foreground">
+              Período — média {summary.avgG}g · min {summary.minG}g · max{" "}
+              {summary.maxG}g
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function MetricsDashboard({ metrics }: MetricsDashboardProps) {
@@ -41,21 +169,31 @@ export function MetricsDashboard({ metrics }: MetricsDashboardProps) {
                 Sem pesagens recentes
               </p>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={metrics.weightChart}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}g`} />
-                  <Tooltip formatter={(v) => [`${Number(v)}g`, "Peso"]} />
-                  <Line
-                    type="monotone"
-                    dataKey="peso"
-                    stroke="#7c3aed"
-                    strokeWidth={2}
-                    dot={{ fill: "#7c3aed", r: 3 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <>
+                {metrics.weightSummary && (
+                  <WeightSummaryPanel summary={metrics.weightSummary} />
+                )}
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={metrics.weightChart}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}g`} />
+                    <Tooltip
+                      content={
+                        <WeightChartTooltip summary={metrics.weightSummary} />
+                      }
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="peso"
+                      stroke="#7c3aed"
+                      strokeWidth={2}
+                      dot={{ fill: "#7c3aed", r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </>
             )}
           </CardContent>
         </Card>
