@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getStartOfToday, getStartOfTomorrow } from "@/lib/db/date-utils";
 import { petAccessibleWhere, petsAccessibleWhere } from "@/lib/db/access";
 import { dateToIso, decimalToNumber } from "@/lib/db/decimal-utils";
+import { resolvePreferences } from "@/lib/db/preferences";
 
 /**
  * Busca todos os pets ativos de um usuário.
@@ -67,6 +68,7 @@ export async function getPetById(petId: string, userId: string) {
       vaccines: {
         orderBy: { appliedAt: "desc" },
       },
+      preferences: true,
     },
   });
 }
@@ -225,6 +227,7 @@ export function serializePet(pet: PetWithDetails) {
       createdAt: ml.createdAt.toISOString(),
       servedBy: { name: ml.servedBy.name },
     })),
+    preferences: resolvePreferences(pet.preferences),
   };
 }
 

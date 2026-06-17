@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { userHasPetReadAccess } from "@/lib/db/access";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { getPetPreferences, type ResolvedPreferences } from "@/lib/db/preferences";
 
 export interface WeightChartPoint {
   date: string;
@@ -34,6 +35,7 @@ export interface PetMetrics {
   waterTodayMl: number;
   lastWeightKg: number | null;
   isKitten: boolean;
+  preferences: ResolvedPreferences;
 }
 
 export interface WaterSummary {
@@ -348,6 +350,8 @@ export async function getMetricsForPet(
     .filter((w) => w.loggedAt >= startOfToday && w.loggedAt < startOfTomorrow)
     .reduce((sum, w) => sum + w.milliliters, 0);
 
+  const preferences = await getPetPreferences(petId);
+
   return {
     petId: pet.id,
     petName: pet.name,
@@ -360,5 +364,6 @@ export async function getMetricsForPet(
     waterTodayMl,
     lastWeightKg,
     isKitten,
+    preferences,
   };
 }
