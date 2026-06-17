@@ -119,7 +119,7 @@ function groupByDay(
 ): RealDailyLog[] {
   const buckets = new Map<string, number[]>();
   for (const log of logs) {
-    const key = format(log.loggedAt, "yyyy-MM-dd");
+    const key = log.loggedAt.toISOString().slice(0, 10);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key)!.push(Number(log.weightKg));
   }
@@ -145,8 +145,8 @@ function interpolateDaily(real: RealDailyLog[]): Array<RealDailyLog & { isInterp
   for (let offset = 0; offset <= totalDays; offset++) {
     const day = new Date(firstDay);
     day.setUTCDate(day.getUTCDate() + offset);
-    const key = format(day, "yyyy-MM-dd");
-    const realMatch = real.find((r) => format(r.date, "yyyy-MM-dd") === key);
+    const key = day.toISOString().slice(0, 10);
+    const realMatch = real.find((r) => r.date.toISOString().slice(0, 10) === key);
     if (realMatch) {
       out.push({ ...realMatch, isInterpolated: false });
       continue;

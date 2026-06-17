@@ -69,4 +69,20 @@ describe("buildWeightChartData", () => {
     expect(summary?.trendStartG).toBeCloseTo(300, 0);
     expect(summary?.trendEndG).toBeCloseTo(500, 0);
   });
+
+  it("gap de 2 dias: 2 pontos interpolados entre as pesagens (10g/dia entre 500g e 530g)", () => {
+    const { chart } = buildWeightChartData([
+      { loggedAt: new Date("2026-06-10T10:00:00Z"), weightKg: 0.5 },
+      { loggedAt: new Date("2026-06-13T10:00:00Z"), weightKg: 0.53 },
+    ]);
+    expect(chart).toHaveLength(4);
+    expect(chart[0]!.peso).toBe(500);
+    expect(chart[0]!.isInterpolated).toBe(false);
+    expect(chart[1]!.peso).toBe(510);
+    expect(chart[1]!.isInterpolated).toBe(true);
+    expect(chart[2]!.peso).toBe(520);
+    expect(chart[2]!.isInterpolated).toBe(true);
+    expect(chart[3]!.peso).toBe(530);
+    expect(chart[3]!.isInterpolated).toBe(false);
+  });
 });
