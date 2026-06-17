@@ -42,3 +42,6 @@ prisma/migrations/
 # IDE
 .idea/
 .vscode/settings.json
+
+# Brainstorm visual companion
+.superpowers/
