@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 const config: Config = {
   darkMode: ["class"],
@@ -53,7 +54,16 @@ const config: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // Custom variants used by shadcn v4-style components (e.g. Switch installed via `shadcn add`).
+    // Map them to Radix's data-state attributes so the v3 toolchain still generates the CSS.
+    plugin(({ addVariant }) => {
+      addVariant("data-checked", '&[data-state="checked"]');
+      addVariant("data-unchecked", '&[data-state="unchecked"]');
+      addVariant("data-disabled", "&[data-disabled]");
+    }),
+  ],
 };
 
 export default config;
