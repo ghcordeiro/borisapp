@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { getPetById, serializePet } from "@/lib/db/pets";
-import { getWaterSummaryForPet } from "@/lib/db/metrics";
+import { getWaterSummaryForPet, buildWeightChartData } from "@/lib/db/metrics";
 import { userHasPetMutationAccess, userIsPetOwner } from "@/lib/db/access";
 import { DailyStatusScreen } from "@/components/tracker/daily-status-screen";
-import { WeightChart } from "@/components/tracker/weight-chart";
+import { WeightCurveCard } from "@/components/tracker/weight-curve-card";
 import { LogWeightForm } from "@/components/tracker/log-weight-form";
 import { LogWaterForm } from "@/components/tracker/log-water-form";
 import { WaterProgress } from "@/components/tracker/water-progress";
@@ -192,7 +192,22 @@ export default async function PetPage({ params }: PetPageProps) {
               </CardContent>
             </Card>
           )}
-          <WeightChart petId={serialized.id} weightLogs={serialized.weightLogs} />
+          {(() => {
+            const { chart, summary } = buildWeightChartData(
+              serialized.weightLogs.map((w) => ({
+                loggedAt: new Date(w.loggedAt),
+                weightKg: w.weightKg,
+              }))
+            );
+            return (
+              <WeightCurveCard
+                chart={chart}
+                summary={summary}
+                title="Curva de Peso"
+                emptyMessage="Nenhuma pesagem registrada ainda."
+              />
+            );
+          })()}
 
           {serialized.weightLogs.length > 0 && (
             <Card>
