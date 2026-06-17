@@ -7,6 +7,7 @@ export interface WeightChartPoint {
   date: string;
   peso: number;
   pesoKg: number;
+  isInterpolated: boolean;
   deltaG: number | null;
   weekGrowthG: number | null;
 }
@@ -17,6 +18,8 @@ export interface WeightSummary {
   maxG: number;
   totalDeltaG: number;
   weeklyGrowthG: number;
+  trendStartG: number | null;
+  trendEndG: number | null;
 }
 
 export interface PetMetrics {
@@ -109,30 +112,71 @@ function labelDay(date: Date): string {
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-function findLogAboutDaysAgo(
-  logs: Array<{ loggedAt: Date; peso: number }>,
-  index: number,
-  daysAgo: number
-): { peso: number; daysDiff: number } | null {
-  const current = logs[index];
-  if (!current) return null;
+type RealDailyLog = { date: Date; weightKg: number };
 
-  let best: { peso: number; daysDiff: number } | null = null;
-
-  for (let i = index - 1; i >= 0; i--) {
-    const earlier = logs[i];
-    if (!earlier) continue;
-
-    const daysDiff =
-      (current.loggedAt.getTime() - earlier.loggedAt.getTime()) / MS_PER_DAY;
-    if (daysDiff >= daysAgo * 0.5) {
-      best = { peso: earlier.peso, daysDiff };
-      if (daysDiff >= daysAgo) break;
-    }
+function groupByDay(
+  logs: Array<{ loggedAt: Date; weightKg: number }>
+): RealDailyLog[] {
+  const buckets = new Map<string, number[]>();
+  for (const log of logs) {
+    const key = format(log.loggedAt, "yyyy-MM-dd");
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(Number(log.weightKg));
   }
+  return Array.from(buckets.entries())
+    .map(([key, weights]) => ({
+      date: new Date(`${key}T00:00:00.000Z`),
+      weightKg: weights.reduce((s, w) => s + w, 0) / weights.length,
+    }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+}
 
-  if (!best || best.daysDiff < 1) return null;
-  return best;
+function interpolateDaily(real: RealDailyLog[]): Array<RealDailyLog & { isInterpolated: boolean }> {
+  if (real.length === 0) return [];
+  if (real.length === 1) {
+    return [{ ...real[0]!, isInterpolated: false }];
+  }
+  const firstDay = real[0]!.date;
+  const lastDay = real[real.length - 1]!.date;
+  const totalDays = Math.round(
+    (lastDay.getTime() - firstDay.getTime()) / MS_PER_DAY
+  );
+  const out: Array<RealDailyLog & { isInterpolated: boolean }> = [];
+  for (let offset = 0; offset <= totalDays; offset++) {
+    const day = new Date(firstDay);
+    day.setUTCDate(day.getUTCDate() + offset);
+    const key = format(day, "yyyy-MM-dd");
+    const realMatch = real.find((r) => format(r.date, "yyyy-MM-dd") === key);
+    if (realMatch) {
+      out.push({ ...realMatch, isInterpolated: false });
+      continue;
+    }
+    const prev = [...real].reverse().find((r) => r.date < day);
+    const next = real.find((r) => r.date > day);
+    if (!prev || !next) continue;
+    const t =
+      (day.getTime() - prev.date.getTime()) /
+      (next.date.getTime() - prev.date.getTime());
+    const weightKg = prev.weightKg + (next.weightKg - prev.weightKg) * t;
+    out.push({ date: day, weightKg, isInterpolated: true });
+  }
+  return out;
+}
+
+function linearRegression(
+  points: Array<{ x: number; y: number }>
+): { slope: number; intercept: number } | null {
+  if (points.length < 2) return null;
+  const n = points.length;
+  const sumX = points.reduce((s, p) => s + p.x, 0);
+  const sumY = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumX2 = points.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
 }
 
 export function buildWeightChartData(
@@ -142,45 +186,63 @@ export function buildWeightChartData(
     return { chart: [], summary: null };
   }
 
-  const normalized = logs.map((w) => ({
-    loggedAt: w.loggedAt,
-    peso: Math.round(Number(w.weightKg) * 1000),
-    pesoKg: Number(w.weightKg),
-  }));
+  const realDaily = groupByDay(logs);
+  const daily = interpolateDaily(realDaily);
 
-  const chart: WeightChartPoint[] = normalized.map((log, index) => {
-    const prev = index > 0 ? normalized[index - 1] : null;
-    const deltaG = prev ? log.peso - prev.peso : null;
+  const chart: WeightChartPoint[] = daily.map((d, index) => {
+    const peso = Math.round(d.weightKg * 1000);
+    const prev = index > 0 ? daily[index - 1] : null;
+    const prevPeso = prev ? Math.round(prev.weightKg * 1000) : null;
+    const deltaG = prevPeso !== null ? peso - prevPeso : null;
 
-    const weekRef = findLogAboutDaysAgo(normalized, index, 7);
-    const weekGrowthG =
-      weekRef !== null
-        ? Math.round(((log.peso - weekRef.peso) / weekRef.daysDiff) * 7)
-        : null;
+    // With 1 point per day (interpolated when missing), 7 days ago is at index - 7.
+    const weekRefIndex = index - 7;
+    const weekRef = weekRefIndex >= 0 ? daily[weekRefIndex] : null;
+    const weekGrowthG = weekRef
+      ? peso - Math.round(weekRef.weightKg * 1000)
+      : null;
 
     return {
-      date: format(log.loggedAt, "dd/MM"),
-      peso: log.peso,
-      pesoKg: log.pesoKg,
+      date: format(d.date, "dd/MM"),
+      peso,
+      pesoKg: Number(d.weightKg.toFixed(3)),
+      isInterpolated: d.isInterpolated,
       deltaG,
       weekGrowthG,
     };
   });
 
-  const pesos = normalized.map((l) => l.peso);
-  const first = normalized[0]!;
-  const last = normalized[normalized.length - 1]!;
+  const realPesos = realDaily.map((r) => Math.round(r.weightKg * 1000));
+  const first = realDaily[0]!;
+  const last = realDaily[realDaily.length - 1]!;
   const spanDays = Math.max(
-    (last.loggedAt.getTime() - first.loggedAt.getTime()) / MS_PER_DAY,
+    (last.date.getTime() - first.date.getTime()) / MS_PER_DAY,
     1
   );
 
+  const trend = linearRegression(
+    realDaily.map((r) => ({
+      x: (r.date.getTime() - first.date.getTime()) / MS_PER_DAY,
+      y: Math.round(r.weightKg * 1000),
+    }))
+  );
+
   const summary: WeightSummary = {
-    avgG: Math.round(pesos.reduce((sum, p) => sum + p, 0) / pesos.length),
-    minG: Math.min(...pesos),
-    maxG: Math.max(...pesos),
-    totalDeltaG: last.peso - first.peso,
-    weeklyGrowthG: Math.round(((last.peso - first.peso) / spanDays) * 7),
+    avgG: Math.round(realPesos.reduce((s, p) => s + p, 0) / realPesos.length),
+    minG: Math.min(...realPesos),
+    maxG: Math.max(...realPesos),
+    totalDeltaG:
+      Math.round(last.weightKg * 1000) - Math.round(first.weightKg * 1000),
+    weeklyGrowthG: Math.round(
+      ((Math.round(last.weightKg * 1000) -
+        Math.round(first.weightKg * 1000)) /
+        spanDays) *
+        7
+    ),
+    trendStartG: trend ? Math.round(trend.intercept) : null,
+    trendEndG: trend
+      ? Math.round(trend.intercept + trend.slope * spanDays)
+      : null,
   };
 
   return { chart, summary };
