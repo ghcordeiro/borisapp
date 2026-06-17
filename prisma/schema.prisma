@@ -107,6 +107,7 @@ model Pet {
   invites         PetInvite[]
   vaccines        Vaccine[]
   waterLogs       WaterLog[]
+  preferences     PetPreferences?
 
   @@index([userId])
   @@map("pets")
@@ -378,4 +379,25 @@ model WaterLog {
 
   @@index([petId, loggedAt])
   @@map("water_logs")
+}
+
+// ==============================================================
+// DOMAIN — Preferências de tracking por pet (Fase 5)
+// ==============================================================
+
+model PetPreferences {
+  id              String   @id @default(cuid())
+  petId           String   @unique
+  trackNutrition  Boolean  @default(true)
+  trackHydration  Boolean  @default(true)
+  trackSymptoms   Boolean  @default(true)
+  trackDeworming  Boolean  @default(true)
+  trackVaccines   Boolean  @default(true)
+  trackVetVisits  Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("pet_preferences")
 }

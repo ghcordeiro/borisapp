@@ -15,8 +15,9 @@ type TimelineEvent = {
 };
 
 export function HealthTimeline({ pet }: HealthTimelineProps) {
+  const prefs = pet.preferences;
   const events: TimelineEvent[] = [
-    ...pet.healthLogs.map((log) => ({
+    ...(prefs.trackSymptoms ? pet.healthLogs : []).map((log) => ({
       id: `health-${log.id}`,
       date: log.occurredAt,
       type: "Log clínico",
@@ -24,7 +25,7 @@ export function HealthTimeline({ pet }: HealthTimelineProps) {
       subtitle: `${log.type} · ${log.severity}`,
       icon: "🩺",
     })),
-    ...pet.vetAppointments.map((apt) => ({
+    ...(prefs.trackVetVisits ? pet.vetAppointments : []).map((apt) => ({
       id: `vet-${apt.id}`,
       date: apt.scheduledAt,
       type: "Consulta",
@@ -32,7 +33,7 @@ export function HealthTimeline({ pet }: HealthTimelineProps) {
       subtitle: apt.status,
       icon: "🏥",
     })),
-    ...pet.dewormings.map((d) => ({
+    ...(prefs.trackDeworming ? pet.dewormings : []).map((d) => ({
       id: `dew-${d.id}`,
       date: d.appliedAt,
       type: "Vermifugação",
@@ -40,7 +41,7 @@ export function HealthTimeline({ pet }: HealthTimelineProps) {
       subtitle: d.nextDueAt ? `Próxima: ${formatDate(d.nextDueAt)}` : undefined,
       icon: "💊",
     })),
-    ...pet.vaccines.map((v) => ({
+    ...(prefs.trackVaccines ? pet.vaccines : []).map((v) => ({
       id: `vac-${v.id}`,
       date: v.appliedAt,
       type: "Vacina",
